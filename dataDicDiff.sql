@@ -1,5 +1,5 @@
-﻿drop table if exists casebook_tables;
-drop table if exists casebook_tables_and_columns;
+﻿drop table if exists casebook_tables_and_columns;
+drop table if exists casebook_tables;
 drop table if exists casebook_tables_sorted;
 drop table if exists casebook_tables_and_columns_sorted;
 drop function if exists dataDicDiff();
@@ -49,13 +49,16 @@ create table casebook_tables_sorted (
 );
 
 --Load data from csv
-copy casebook_tables from '/tmp/casebook_tables.csv' 
+copy casebook_tables 
+from '/tmp/casebook_tables.csv' 
+--from 'C:\\CaseCommons\\data_dictionary\\casebook_tables.csv' 
 with delimiter as ',' 
 CSV HEADER 
 FORCE NOT NULL description;
 
 copy casebook_tables_and_columns 
 from '/tmp/casebook_tables_and_columns.csv' 
+--from 'C:\\CaseCommons\\data_dictionary\\casebook_tables_and_columns.csv' 
 with delimiter as ',' 
 CSV HEADER 
 FORCE NOT NULL description; 
@@ -89,10 +92,17 @@ declare
   AND c.relname <> 'casebook_tables_and_columns'
   AND c.relname <> 'casebook_tables_sorted'
   AND c.relname <> 'casebook_tables_and_columns_sorted'
-  AND c.relname <> 'audit_log'
+  AND c.relname !~ '^audit_log'
   AND c.relname <> 'schema_migrations'
+  AND c.relname !~ '^admin_style_guide_'
+  AND c.relname <> 'broadcast_messages'
+  AND c.relname !~ '^click_streams_'
+  AND c.relname !~ '^data_broker_'
+  AND c.relname !~ '^data_conversion_'
   AND c.relkind = 'r'
   AND a.attnum > 0
+  AND a.attname <> 'id'
+  and a.attname <> 'created_at'
   AND a.attrelid = c.oid
   AND a.atttypid = t.oid;
   
@@ -104,8 +114,13 @@ declare
   AND c.relname <> 'casebook_tables_and_columns'
   AND c.relname <> 'casebook_tables_sorted'
   AND c.relname <> 'casebook_tables_and_columns_sorted'
-  AND c.relname <> 'audit_log'
-  AND c.relname <> 'schema_migrations';
+  AND c.relname !~ '^audit_log'
+  AND c.relname <> 'schema_migrations'
+  AND c.relname !~ '^admin_style_guide_'
+  AND c.relname <> 'broadcast_messages'
+  AND c.relname !~ '^click_streams_'
+  AND c.relname !~ '^data_broker_'
+  AND c.relname !~ '^data_conversion_';
 
   c_tables_columns_in_dd cursor for
   select * from casebook_tables_and_columns
@@ -243,13 +258,13 @@ begin
 
   copy casebook_tables_and_columns_sorted 
   to '/tmp/casebook_tables_and_columns_new.csv' 
-  --to 'casebook_tables_and_columns_new.csv'
+  --to 'C:\\CaseCommons\\data_dictionary\\casebook_tables_and_columns_new.csv'
   WITH DELIMITER AS ','
   CSV force quote description;
   
   copy casebook_tables_sorted 
   to '/tmp/casebook_tables_new.csv' 
-  --to 'casebook_tables_new.csv'
+  --to 'C:\\CaseCommons\\data_dictionary\\casebook_tables_new.csv'
   WITH DELIMITER AS ','
   CSV force quote description;
    
