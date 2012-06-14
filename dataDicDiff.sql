@@ -210,9 +210,9 @@ begin
 
      if (vCount = 0) then
      
-       /*raise notice 'Column % in table % has been dropped', 
+       raise notice 'Column % in table % has been dropped', 
          tables_columns_from_dd.attribute_name,
-         tables_columns_from_dd.table_name;*/
+         tables_columns_from_dd.table_name;
        
        update casebook_tables_and_columns 
        set change_type = 'dropped',
@@ -236,7 +236,7 @@ begin
 
      if (vCount = 0) then
 
-       --raise notice 'Table % has been dropped', tables_from_dd.table_name;
+       raise notice 'Table % has been dropped', tables_from_dd.table_name;
        
        update casebook_tables 
        set change_type = 'dropped',
