@@ -1,272 +1,201 @@
-﻿drop table if exists casebook_tables_and_columns;
-drop table if exists casebook_tables;
-drop table if exists casebook_tables_sorted;
-drop table if exists casebook_tables_and_columns_sorted;
-drop function if exists dataDicDiff();
+DROP TABLE IF EXISTS casebook_tables_and_columns;
+DROP TABLE IF EXISTS casebook_tables;
 
-create table casebook_tables_and_columns (
-  table_name varchar(255),
-  attribute_name varchar(255),
-  datatype varchar(255),
-  n_bytes integer default null,
-  length integer default null,
-  description text,
+CREATE TABLE casebook_tables_and_columns(
+  tablename varchar(255) not null,
+  columnname varchar(255) not null,
+  datatype varchar(50) not null,
+  nbytes_fixed integer default null,
+  nbytes_variable integer default null,
+  description text default null,
   foreign_key_links_to varchar(255) default null,
-  configurable boolean default null,
-  redundant_column boolean default 'f',
-  change_type varchar(255) default null,
-  change_detected_on date default null
+  configurable varchar(1) default null,
+  redundant_column boolean default FALSE,
+  change_type varchar(20) default null,
+  change_detected_on date default null,
+  primary key (tablename, columnname)
 );
 
-create table casebook_tables (
-  table_name varchar(255),
-  description text,
-  data_value_table boolean default 'f',
-  change_type varchar(255) default null,
-  change_detected_on date default null
+CREATE TABLE casebook_tables(
+  tablename varchar(255) not null,
+  description text default null,
+  data_value_table boolean default FALSE,
+  change_type varchar(20) default null,
+  change_detected_on date default null,
+  primary key (tablename)
 );
 
-create table casebook_tables_and_columns_sorted (
-  table_name varchar(255),
-  attribute_name varchar(255),
-  datatype varchar(255),
-  n_bytes integer default null,
-  length integer default null,
-  description text,
-  foreign_key_links_to varchar(255) default null,
-  configurable boolean default null,
-  redundant_column boolean default 'f',
-  change_type varchar(255) default null,
-  change_detected_on date default null
-);
+COPY casebook_tables_and_columns FROM '/tmp/casebook_tables_and_columns.csv' WITH CSV HEADER;
+COPY casebook_tables FROM '/tmp/casebook_tables.csv' WITH CSV HEADER;
 
-create table casebook_tables_sorted (
-  table_name varchar(255),
-  description text,
-  data_value_table boolean default 'f',
-  change_type varchar(255) default null,
-  change_detected_on date default null
-);
+update casebook_tables_and_columns set description = '"' || description || '"';
+update casebook_tables set description = '"' || description || '"';
 
---Load data from csv
-copy casebook_tables 
-from '/tmp/casebook_tables.csv' 
---from 'C:\\CaseCommons\\data_dictionary\\casebook_tables.csv' 
-with delimiter as ',' 
-CSV HEADER 
-FORCE NOT NULL description;
 
-copy casebook_tables_and_columns 
-from '/tmp/casebook_tables_and_columns.csv' 
---from 'C:\\CaseCommons\\data_dictionary\\casebook_tables_and_columns.csv' 
-with delimiter as ',' 
-CSV HEADER 
-FORCE NOT NULL description; 
+DROP FUNCTION IF EXISTS dataDicDiff(); 
 
---Wrap the text descriptions within single quotes so that the commas within
---them do not split the descriptions
-/*update casebook_tables_and_columns
-set description = '"' || description || '"';
-
-update casebook_tables
-set description = '"' || description || '"';*/
-
-create function dataDicDiff() returns void as $$
-declare
-
-  tables_columns_from_db record;
-  tables_from_db record;
-
-  tables_columns_from_dd record;
-  tables_from_dd record;
-
-  vCount integer;
+CREATE FUNCTION dataDicDiff() RETURNS void AS $$
   
-  c_tables_columns_in_db cursor for  
-  SELECT c.relname, a.attname, t.typname, 
-         nullif(a.attlen, -1) AS length, 
-         nullif(a.atttypmod, -1) AS lengthvar 
-  FROM pg_class c, pg_attribute a, pg_type t
-  WHERE c.relname !~ '^(pg_|sql_)' 
-  AND c.relname !~ 'casebook_tables'
-  AND c.relname <> 'casebook_tables_and_columns'
-  AND c.relname <> 'casebook_tables_sorted'
-  AND c.relname <> 'casebook_tables_and_columns_sorted'
-  AND c.relname !~ '^audit_log'
-  AND c.relname <> 'schema_migrations'
-  AND c.relname !~ '^admin_style_guide_'
-  AND c.relname <> 'broadcast_messages'
-  AND c.relname !~ '^click_streams_'
-  AND c.relname !~ '^data_broker_'
-  AND c.relname !~ '^data_conversion_'
-  AND c.relkind = 'r'
-  AND a.attnum > 0
-  AND a.attname <> 'id'
-  and a.attname <> 'created_at'
-  AND a.attrelid = c.oid
-  AND a.atttypid = t.oid;
-  
-  c_tables_in_db cursor for
-  SELECT c.relname FROM pg_class c 
-  WHERE c.relname !~ '^(pg_|sql_)' 
-  AND c.relkind = 'r'
-  AND c.relname <> 'casebook_tables'
-  AND c.relname <> 'casebook_tables_and_columns'
-  AND c.relname <> 'casebook_tables_sorted'
-  AND c.relname <> 'casebook_tables_and_columns_sorted'
-  AND c.relname !~ '^audit_log'
-  AND c.relname <> 'schema_migrations'
-  AND c.relname !~ '^admin_style_guide_'
-  AND c.relname <> 'broadcast_messages'
-  AND c.relname !~ '^click_streams_'
-  AND c.relname !~ '^data_broker_'
-  AND c.relname !~ '^data_conversion_';
+  DECLARE
 
-  c_tables_columns_in_dd cursor for
-  select * from casebook_tables_and_columns
-  where change_type is NULL or change_type = 'added';
+    dataDicRow casebook_tables_and_columns%ROWTYPE;
 
-  c_tables_in_dd cursor for
-  select * from casebook_tables
-  where change_type is NULL or change_type = 'added';
-  
-begin
+    tableName pg_class.relname%TYPE;
+    columnName pg_attribute.attname%TYPE;
+    dataType pg_type.typname%TYPE;
+    fixedLength pg_attribute.attlen%TYPE;
+    variableLength pg_attribute.atttypmod%TYPE;
+    recordFromMetadata RECORD;
+    recordFromDataDictionary RECORD;
+    nMatchingRecords integer;
 
-  --Detect columns which have been added. Should be present in metadata but 
-  --not in data dictionary.
-  
-  for tables_columns_from_db in c_tables_columns_in_db loop
-     
-     vCount := 0;
-     
-     SELECT count(*) into vCount
-     FROM casebook_tables_and_columns
-     where table_name = tables_columns_from_db.relname
-     and attribute_name = tables_columns_from_db.attname;
-
-     if (vCount = 0) then
-     
-       raise notice 'Column % in table % has been added', 
-         tables_columns_from_db.attname,
-         tables_columns_from_db.relname;
-       
-       insert into casebook_tables_and_columns 
-       (table_name, attribute_name, datatype,
-        n_bytes, length,
-        change_type, change_detected_on)
-       values (tables_columns_from_db.relname, 
-               tables_columns_from_db.attname,
-               tables_columns_from_db.typname,
-               tables_columns_from_db.length,
-               tables_columns_from_db.lengthvar,
-               'added',
-               current_date);
-     end if;
-
-  end loop;
-
-  --Detect tables which have been added. Should be present in metadata but 
-  --not in data dictionary.
-  
-  for tables_from_db in c_tables_in_db loop
-     
-     vCount := 0;
-     
-     SELECT count(*) into vCount
-     FROM casebook_tables
-     where table_name = tables_from_db.relname;
-
-     if (vCount = 0) then
-     
-       raise notice 'Table % has been added', 
-         tables_from_db.relname;
-       
-       insert into casebook_tables
-       (table_name, 
-        change_type, change_detected_on)
-       values (tables_from_db.relname,
-               'added',
-               current_date);
-     end if;
-
-  end loop;
-  
-
-  --Detect columns which have been dropped. Should be present in data dictionary but 
-  --not in metadata.
-  
-  for tables_columns_from_dd in c_tables_columns_in_dd loop
-     
-     vCount := 0;
-     
-     SELECT count(*) into vCount
-     FROM pg_class c, pg_attribute a, pg_type t
-     WHERE c.relkind = 'r'
-     AND a.attnum > 0
-     AND a.attrelid = c.oid
-     AND a.atttypid = t.oid
-     and c.relname = tables_columns_from_dd.table_name
-     and a.attname = tables_columns_from_dd.attribute_name;
-
-     if (vCount = 0) then
-     
-       raise notice 'Column % in table % has been dropped', 
-         tables_columns_from_dd.attribute_name,
-         tables_columns_from_dd.table_name;
-       
-       update casebook_tables_and_columns 
-       set change_type = 'dropped',
-           change_detected_on = current_date
-       where table_name = tables_columns_from_dd.table_name
-       and attribute_name = tables_columns_from_dd.attribute_name;
-     end if;
-
-  end loop;
-  --Detect tables which have been dropped. Should be present in data dictionary but 
-  --not in metadata.
-  
-  for tables_from_dd in c_tables_in_dd loop
-     
-     vCount := 0;
-
-     SELECT count(*) into vCount 
-     FROM pg_class 
-     WHERE relname = tables_from_dd.table_name
-     AND relkind = 'r';
-
-     if (vCount = 0) then
-
-       raise notice 'Table % has been dropped', tables_from_dd.table_name;
-       
-       update casebook_tables 
-       set change_type = 'dropped',
-           change_detected_on = current_date
-       where table_name = tables_from_dd.table_name;
-     end if;
-     
+    --CURSOR THAT FETCHES DATA FROM METADATA. USED TO SEE WHAT TABLES AND COLUMNS HAVE BEEN ADDED.
     
-  end loop;
+    cursForAdded CURSOR FOR 
+      SELECT c.relname AS tableName, a.attname AS columnName, t.typname AS dataType, a.attlen AS fixedLength,
+        a.atttypmod AS variableLength
+      FROM pg_class c, pg_attribute a, pg_type t
+      WHERE a.attnum > 0
+      AND a.attrelid = c.oid
+      AND a.atttypid = t.oid
+      and c.relname !~ '^(pg_|sql_)' AND c.relkind = 'r' 
+      and a.attname != 'created_at' and a.attname != 'updated_at' and a.attname != 'id'
+      and c.relname NOT IN ('casebook_tables_and_columns', 'casebook_tables', 'unique_resource_identifiers', 
+                            'schema_migrations', 'resque_job_to_retries', 'recovery_passwords',
+                            'data_conversion_jobs', 'broadcast_messages', 'user_views')
+      and c.relname !~ '^admin_style_guide'
+      and c.relname !~ '^audit_log'
+      and c.relname !~ '^click_streams'
+      and c.relname !~ '^data_broker_event_logs'
+      and c.relname !~ '^data_broker_traffic_logs'
+      order by c.relname, a.attname;
 
-  --Reload data in sorted form
-  insert into casebook_tables_and_columns_sorted
-  select * from casebook_tables_and_columns
-  order by table_name, attribute_name;
+    --CURSOR THAT FETCHES DATA FROM DATA DICTIONARY. USED TO SEE WHAT TABLES AND COLUMNS HAVE BEEN DROPPED.
 
-  insert into casebook_tables_sorted
-  select * from casebook_tables
-  order by table_name;
+    cursForDropped CURSOR FOR SELECT * FROM casebook_tables_and_columns;
 
-  copy casebook_tables_and_columns_sorted 
-  to '/tmp/casebook_tables_and_columns_new.csv' 
-  --to 'C:\\CaseCommons\\data_dictionary\\casebook_tables_and_columns_new.csv'
-  WITH DELIMITER AS ','
-  CSV force quote description;
-  
-  copy casebook_tables_sorted 
-  to '/tmp/casebook_tables_new.csv' 
-  --to 'C:\\CaseCommons\\data_dictionary\\casebook_tables_new.csv'
-  WITH DELIMITER AS ','
-  CSV force quote description;
-   
-end
+    --CURSOR THAT FETCHES DATA FROM METADATA. USED TO SEE WHAT TABLES HAVE BEEN ADDED.
+    
+    cursForAddedTable CURSOR FOR 
+      SELECT c.relname AS tableName
+      FROM pg_class c
+      WHERE c.relname !~ '^(pg_|sql_)' AND c.relkind = 'r' 
+      and c.relname NOT IN ('casebook_tables_and_columns', 'casebook_tables', 'unique_resource_identifiers', 
+                            'schema_migrations', 'resque_job_to_retries', 'recovery_passwords',
+                            'data_conversion_jobs', 'broadcast_messages', 'user_views')
+      and c.relname !~ '^admin_style_guide'
+      and c.relname !~ '^audit_log'
+      and c.relname !~ '^click_streams'
+      and c.relname !~ '^data_broker_event_logs'
+      and c.relname !~ '^data_broker_traffic_logs'
+      order by c.relname;
+
+    --CURSOR THAT FETCHES DATA FROM DATA DICTIONARY. USED TO SEE WHAT TABLES HAVE BEEN DROPPED.
+
+    cursForDroppedTable CURSOR FOR SELECT * FROM casebook_tables;
+
+  BEGIN
+    
+    
+    FOR recordFromMetadata IN cursForAdded LOOP
+      
+      --CHECK IF THESE TABLES/COLUMNS ARE PRESENT IN THE DATA DICTIONARY
+      
+      EXECUTE 'select count(*)  from casebook_tables_and_columns where tablename = $1 and columnname = $2' INTO nMatchingRecords USING recordFromMetadata.tableName, recordFromMetadata.columnName;
+      IF nMatchingRecords = 0 THEN
+          RAISE NOTICE 'column % in table % is a new addition', recordFromMetadata.columnName, 
+                       recordFromMetadata.tableName;
+          INSERT INTO casebook_tables_and_columns(tablename, columnname, datatype, nbytes_fixed, nbytes_variable, change_type, change_detected_on) 
+                     VALUES (recordFromMetadata.tableName, recordFromMetadata.columnName, recordFromMetadata.dataType, 
+                        NULLIF(recordFromMetadata.fixedLength, -1), NULLIF(recordFromMetadata.variableLength, -1), 'added', date(current_timestamp));
+        --END IF;
+      END IF;
+     
+    END LOOP;
+
+    FOR recordFromDataDictionary IN cursForDropped LOOP
+      
+      --CHECK IF THESE TABLES/COLUMNS ARE PRESENT IN THE DATABASE
+      
+      EXECUTE 'select count(*) from pg_class c, pg_attribute a where a.attnum > 0 AND a.attrelid = c.oid 
+               and c.relname !~ $1 AND c.relkind = $2 and c.relname = $3 and a.attname = $4'
+         INTO nMatchingRecords 
+         USING '^(pg_|sql_)', 'r', recordFromDataDictionary.tablename, 
+               recordFromDataDictionary.columnname; 
+      IF nMatchingRecords = 0 THEN
+         --RAISE NOTICE 'column % in table % has been dropped', recordFromDataDictionary.columnname, recordFromDataDictionary.tablename;
+         UPDATE casebook_tables_and_columns SET change_type = 'dropped', change_detected_on = date(current_timestamp) 
+         WHERE casebook_tables_and_columns.tablename = recordFromDataDictionary.tablename and casebook_tables_and_columns.columnname = recordFromDataDictionary.columnname;
+      END IF;
+     
+    END LOOP;
+
+    FOR recordFromMetadata IN cursForAddedTable LOOP
+      
+      --CHECK IF THESE TABLES ARE PRESENT IN THE DATA DICTIONARY
+      
+      EXECUTE 'select count(*)  from casebook_tables where tablename = $1' INTO nMatchingRecords USING recordFromMetadata.tableName;
+      IF nMatchingRecords = 0 THEN
+         --RAISE NOTICE 'table % is a new addition', recordFromMetadata.tableName;
+         INSERT INTO casebook_tables(tablename, change_type, change_detected_on) 
+                     VALUES (recordFromMetadata.tableName, 'added', date(current_timestamp));
+      END IF;
+     
+    END LOOP;
+
+    FOR recordFromDataDictionary IN cursForDroppedTable LOOP
+      
+      --CHECK IF THESE TABLES ARE PRESENT IN THE DATABASE
+      
+      EXECUTE 'select count(*) from pg_class c where c.relname = $1'
+         INTO nMatchingRecords 
+         USING recordFromDataDictionary.tablename;
+      IF nMatchingRecords = 0 THEN
+         --RAISE NOTICE 'table % has been dropped', recordFromDataDictionary.tablename;
+         UPDATE casebook_tables SET change_type = 'dropped', change_detected_on = date(current_timestamp) 
+         WHERE casebook_tables.tablename = recordFromDataDictionary.tablename;
+      END IF;
+    END LOOP;
+  END;
 $$ LANGUAGE plpgsql;
+
+--Run the function to populate and update casebook_tables_and_columns
+SELECT dataDicDiff();
+
+--Copy table and column data back to csv files. Before that, copy to a new 
+--table to sort the data.
+DROP TABLE IF EXISTS casebook_tables_and_columns_new;
+DROP TABLE IF EXISTS casebook_tables_new;
+
+CREATE TABLE casebook_tables_and_columns_new(
+  tablename varchar(255) not null,
+  columnname varchar(255) not null,
+  datatype varchar(50) not null,
+  nbytes_fixed integer default null,
+  nbytes_variable integer default null,
+  description text default null,
+  foreign_key_links_to varchar(255) default null,
+  configurable varchar(1) default null,
+  redundant_column boolean default FALSE,
+  change_type varchar(20) default null,
+  change_detected_on date default null,
+  primary key (tablename, columnname)
+);
+
+CREATE TABLE casebook_tables_new(
+  tablename varchar(255) not null,
+  description text default null,
+  data_value_table boolean default FALSE,
+  change_type varchar(20) default null,
+  change_detected_on date default null,
+  primary key (tablename)
+);
+
+INSERT INTO casebook_tables_and_columns_new SELECT * FROM casebook_tables_and_columns ORDER BY tablename, columnname;
+INSERT INTO casebook_tables_new SELECT * FROM casebook_tables ORDER BY tablename;
+COPY casebook_tables_and_columns_new TO '/tmp/casebook_tables_and_columns_new.csv' delimiters ',';
+COPY casebook_tables_new TO '/tmp/casebook_tables_new.csv' delimiters ',';
+--DROP TABLE casebook_tables_and_columns;
+--DROP TABLE casebook_tables_and_columns_new;
+--DROP TABLE casebook_tables;
+--DROP TABLE casebook_tables_new;

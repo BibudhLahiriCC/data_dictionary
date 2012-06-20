@@ -1,16 +1,19 @@
-1. Open the latest Google doc that contains the latest data dictionary. Download the sheet "Tables and columns"
-   as "casebook_tables_and_columns.csv" and download the sheet "Tables" as "casebook_tables.csv". Keep them
-   in some folder in the local machine.
-2. Ssh into sandbox. Scp the files casebook_tables_and_columns.csv and casebook_tables.csv into /tmp folder
-   of sandbox. Also, scp the script file dataDicDiff.sql into /tmp of sandbox.
-3. Launch postgres from sandbox.
-4. Compile dataDicDiff.sql by the following command: "\i dataDicDiff.sql".
-5. Run the script by "select dataDicDiff()".
-6. The script will generate two csv files: casebook_tables_and_columns_new.csv and casebook_tables_new.csv.
-   These are raw updated versions of the updated data dictionary. Scp them back to the local machine.
-7. Because the files casebook_tables_and_columns_new.csv and casebook_tables_new.csv are copied from postgres tables, 
-   columns that have null values may contain "\N", and commas may be replaced by "\,". Check if that has happened. If it 
-   has, then replace "\N" by empty string, and "\," by "," globally.
-8. Copy entire contents of the sheets casebook_tables_and_columns_new.csv and casebook_tables_new.csv to an excel file
-   and name it data_dictionary.xls. Add header rows and convert it to a Google doc. 
-9. Do all the manual updates of the data dictionary.
+1) If Google docs is not in sync with .xls, first copy google doc to .xls. Copy sheets of data_dictionary.xls to 2 .csv files: casebook_tables_and_columns.csv and casebook_tables.csv with headers in folder /Users/bibudhlahiri/data_dictionary/csv_files. Delete the first row from casebook_tables_and_columns.csv which is a merge of multiple columns. 
+2) Make changes to code, if any.
+3) From /Users/bibudhlahiri/data_dictionary, copy code by scp ./dataDicDiff.sql bibudh-cb2-sandbox:/tmp/dataDicDiff.sql
+4) Copy .csv files to server by 
+   scp ./csv_files/casebook_tables_and_columns.csv bibudh-cb2-sandbox:/tmp/casebook_tables_and_columns.csv
+   scp ./csv_files/casebook_tables.csv bibudh-cb2-sandbox:/tmp/casebook_tables.csv
+5) Log on to DB server by
+   ssh bibudh-cb2-sandbox
+   sudo su postgres
+   psql 
+   \connect casebook2_sandbox
+6) Copy files back by 
+   scp bibudh-cb2-sandbox:/tmp/casebook_tables_and_columns_new.csv ./csv_files/casebook_tables_and_columns_new.csv
+   scp bibudh-cb2-sandbox:/tmp/casebook_tables_new.csv ./csv_files/casebook_tables_new.csv
+7) In /Users/bibudhlahiri/data_dictionary/csv_files, open casebook_tables_and_columns_new.csv and casebook_tables_new.csv in Excel, replace all "\N" by null, and all "\," by ",".
+8) Copy contents of casebook_tables_and_columns_new.csv and casebook_tables_new.csv back to data_dictionary.xls. Copy contents of .xls to Google doc.
+9) Update descriptions.
+10) Delete tables casebook_tables_and_columns, casebook_tables_and_columns_new, casebook_tables and casebook_tables_new. Having these tables during updating the data dictionary helps to get an idea of how many
+    tables and columns have been changed since the last update.
